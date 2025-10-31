@@ -1,5 +1,8 @@
-// API Route cho Authentication  
+// API Route cho Authentication
 // URL: /api/auth/login
+
+import { getDb } from '@/lib/mongodb'
+import bcrypt from 'bcryptjs'
 
 export default function handler(req, res) {
   if (req.method !== 'POST') {
@@ -22,15 +25,13 @@ async function handleLogin(req, res) {
       });
     }
 
-    // Fake user database
-    const users = [
-      { id: 1, email: 'admin@gmail.com', password: '123456', role: 'admin', name: 'Admin' },
-      { id: 2, email: 'user@gmail.com', password: '123456', role: 'user', name: 'User Test' }
-    ];
+    // Connect to MongoDB
+    const db = await getDb();
+    const users = db.collection('User');
 
-    // Find user
-    const user = users.find(u => u.email === email);
-    
+    // Find user by email
+    const user = await users.findOne({ email });
+
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -38,31 +39,41 @@ async function handleLogin(req, res) {
       });
     }
 
-    // Check password (trong thực tế nên hash password)
-    if (user.password !== password) {
+    // Check password with bcrypt
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+
+    if (!isPasswordValid) {
       return res.status(401).json({
         success: false,
         message: 'Mật khẩu không đúng'
       });
     }
 
-    // Generate fake JWT token
-    const token = `fake_jwt_token_${user.id}_${Date.now()}`;
+    // Generate token (mock for now)
+    const token = `token_${user._id}_${Date.now()}`;
 
-    // Return user info (không trả về password)
-    const { password: pwd, ...userInfo } = user;
+    // Set httpOnly cookie
+    const secureFlag = process.env.NODE_ENV === 'production' ? 'Secure; ' : '';
+    res.setHeader('Set-Cookie', `token=${token}; HttpOnly; Path=/; Max-Age=86400; SameSite=Lax; ${secureFlag}`);
+
+    // Return user info (không trả về passwordHash)
+    const { passwordHash, ...userInfo } = user;
 
     res.status(200).json({
       success: true,
       message: 'Đăng nhập thành công',
       data: {
-        user: userInfo,
+        user: {
+          ...userInfo,
+          id: user._id
+        },
         token,
         expiresIn: '24h'
       }
     });
 
   } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({
       success: false,
       message: 'Lỗi server',
